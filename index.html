@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Text Remover AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #0a0a0a; color: #fff; min-height: 100vh; }
+  .header { padding: 16px; background: linear-gradient(135deg, #667eea, #764ba2); text-align: center; }
+  .header h1 { font-size: 22px; }
+  .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+  .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%; margin: 8px 0; }
+  .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; }
+  .btn-secondary { background: #333; color: #fff; }
+  .btn:disabled { opacity: 0.5; }
+  canvas { width: 100%; border-radius: 8px; background: #1a1a1a; touch-action: none; }
+  .slider { width: 100%; margin: 8px 0; }
+  .controls { background: #1a1a1a; padding: 12px; border-radius: 8px; margin: 8px 0; }
+  .status { text-align: center; padding: 12px; color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+  <div class="header"><h1>🎨 Text Remover AI</h1></div>
+  <div class="container">
+    <input type="file" id="fileInput" accept="image/*" style="display:none">
+    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">📁 Image Chuno</button>
+    <div class="controls" id="controls" style="display:none">
+      <label>Brush Size: <span id="sizeLabel">30</span>px</label>
+      <input type="range" min="5" max="100" value="30" id="brushSize" class="slider">
+      <button class="btn btn-secondary" onclick="clearMask()">🧹 Clear</button>
+    </div>
+    <canvas id="canvas" style="display:none"></canvas>
+    <button class="btn btn-primary" id="removeBtn" onclick="removeText()" style="display:none">✨ Remove Text</button>
+    <button class="btn btn-secondary" id="downloadBtn" onclick="downloadResult()" style="display:none">⬇️ Download Result</button>
+    <div class="status" id="status"></div>
+  </div>
+<script>
+const API_URL = 'https://text-remover-livid.vercel.app/api/remove';
+let img = new Image();
+let originalImageData = null;
+let isDrawing = false;
+let brushSize = 30;
+let resultDataUrl = null;
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+document.getElementById('brushSize').oninput = (e) => {
+  brushSize = parseInt(e.target.value);
+  document.getElementById('sizeLabel').textContent = brushSize;
+};
+document.getElementById('fileInput').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      canvas.style.display = 'block';
+      ctx.drawImage(img, 0, 0);
+      originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      document.getElementById('controls').style.display = 'block';
+      document.getElementById('removeBtn').style.display = 'block';
+      document.getElementById('downloadBtn').style.display = 'none';
+      resultDataUrl = null;
+      setStatus('Brush se text ke upar paint karo, phir Remove Text dabao');
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  let clientX, clientY;
+  if (e.touches) { clientX = e.touches[0].clientX; clientY = e.touches[0].clientY; }
+  else { clientX = e.clientX; clientY = e.clientY; }
+  return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
+function paint(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pos = getPos(e);
+  ctx.fillStyle = 'rgba(255, 0, 0, 0.6)';
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, brushSize, 0, Math.PI * 2);
+  ctx.fill();
+}
+canvas.addEventListener('mousedown', (e) => { isDrawing = true; paint(e); });
+canvas.addEventListener('mousemove', paint);
+canvas.addEventListener('mouseup', () => isDrawing = false);
+canvas.addEventListener('mouseleave', () => isDrawing = false);
+canvas.addEventListener('touchstart', (e) => { isDrawing = true; paint(e); });
+canvas.addEventListener('touchmove', paint);
+canvas.addEventListener('touchend', () => isDrawing = false);
+function clearMask() {
+  if (!originalImageData) return;
+  ctx.putImageData(originalImageData, 0, 0);
+  resultDataUrl = null;
+  document.getElementById('downloadBtn').style.display = 'none';
+  setStatus('Mask clear ho gaya. Dobara paint karo.');
+}
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+async function removeText() {
+  if (!originalImageData) return;
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = canvas.width;
+  maskCanvas.height = canvas.height;
+  const maskCtx = maskCanvas.getContext('2d');
+  maskCtx.fillStyle = 'black';
+  maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+  const currentData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+  for (let i = 0; i < currentData.data.length; i += 4) {
+    const r = currentData.data[i], g = currentData.data[i+1], b = currentData.data[i+2];
+    if (r > 150 && g < 150 && b < 150) {
+      maskData.data[i] = 255; maskData.data[i+1] = 255; maskData.data[i+2] = 255;
+    }
+  }
+  maskCtx.putImageData(maskData, 0, 0);
+  const origCanvas = document.createElement('canvas');
+  origCanvas.width = canvas.width;
+  origCanvas.height = canvas.height;
+  origCanvas.getContext('2d').putImageData(originalImageData, 0, 0);
+  const imageB64 = origCanvas.toDataURL('image/png');
+  const maskB64 = maskCanvas.toDataURL('image/png');
+  setStatus('⏳ AI kaam kar raha hai... (10-30 sec)');
+  document.getElementById('removeBtn').disabled = true;
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: imageB64, mask: maskB64 })
+    });
+    if (!res.ok) throw new Error('Server error: ' + res.status);
+    const data = await res.json();
+    if (data.result) {
+      resultDataUrl = data.result;
+      const resultImg = new Image();
+      resultImg.onload = () => {
+        ctx.drawImage(resultImg, 0, 0);
+        document.getElementById('downloadBtn').style.display = 'block';
+        setStatus('✅ Text remove ho gaya! Download karo.');
+      };
+      resultImg.src = data.result;
+    } else { throw new Error(data.error || 'Unknown error'); }
+  } catch (err) { setStatus('❌ Error: ' + err.message); }
+  finally { document.getElementById('removeBtn').disabled = false; }
+}
+function downloadResult() {
+  if (!resultDataUrl) return;
+  const a = document.createElement('a');
+  a.href = resultDataUrl;
+  a.download = 'text-removed-' + Date.now() + '.png';
+  a.click();
+}
+</script>
+</body>
+  </html>
