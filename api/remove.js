@@ -1,16 +1,32 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const { image, mask } = req.body;
-  const token = process.env.HF_TOKEN;
+  const token = process.env.REPLICATE_TOKEN;
   try {
-    const response = await fetch("https://api-inference.huggingface.co/models/Sanster/lama-cleaner-lama", {
+    let r = await fetch("https://api.replicate.com/v1/models/zsxkib/refining-lama/predictions", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ inputs: { image: image, mask: mask } })
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        input: { image: image, mask: mask }
+      })
     });
-    if (!response.ok) throw new Error(`HF API error: ${response.statusText}`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.status(200).json({ result: `data:image/png;base64,${buffer.toString('base64')}` });
+    let pred = await r.json();
+    if (pred.error) throw new Error(pred.error);
+    while (pred.status !== 'succeeded' && pred.status !== 'failed' && pred.status !== 'canceled') {
+      await new Promise(x => setTimeout(x, 2500));
+      r = await fetch(`https://api.replicate.com/v1/predictions/${pred.id}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      pred = await r.json();
+    }
+    if (pred.status !== 'succeeded') throw new Error(pred.error || 'Failed');
+    const outputUrl = Array.isArray(pred.output) ? pred.output[0] : pred.output;
+    const imgRes = await fetch(outputUrl);
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    res.status(200).json({ result: `data:image/png;base64,${buf.toString('base64')}` });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
