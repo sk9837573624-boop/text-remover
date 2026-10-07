@@ -3,7 +3,7 @@ export default async function handler(req, res) {
   const { image, mask } = req.body;
   const token = process.env.HF_TOKEN;
   try {
-    const response = await fetch("https://api-inference.huggingface.co/models/Sanster/lama-cleaner", {
+    const response = await fetch("https://api-inference.huggingface.co/models/Sanster/lama-cleaner-lama", {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ inputs: { image: image, mask: mask } })
